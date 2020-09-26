@@ -1,0 +1,68 @@
+os: linux
+dist: xenial
+
+language: python
+cache: pip
+services:
+  - redis
+
+matrix:
+  include:
+    - env: TOXENV=lint
+    - python: 3.6
+      env: TOXENV=py36-django30-aioredislatest
+    - python: 3.6
+      env: TOXENV=py36-django30-aioredismaster
+    - python: 3.7
+      env: TOXENV=py37-django30-aioredislatest
+    - python: 3.7
+      env: TOXENV=py37-django30-aioredismaster
+    - python: 3.8
+      env: TOXENV=py38-django30-aioredislatest
+    - python: 3.8
+      env: TOXENV=py38-django30-aioredismaster
+    - python: 3.6
+      env: TOXENV=py36-django31-aioredislatest
+    - python: 3.6
+      env: TOXENV=py36-django31-aioredismaster
+    - python: 3.7
+      env: TOXENV=py37-django31-aioredislatest
+    - python: 3.7
+      env: TOXENV=py37-django31-aioredismaster
+    - python: 3.8
+      env: TOXENV=py38-django31-aioredislatest
+    - python: 3.8
+      env: TOXENV=py38-django31-aioredismaster
+    - python: 3.6
+      env: TOXENV=py36-djangomaster-aioredislatest
+    - python: 3.6
+      env: TOXENV=py36-djangomaster-aioredismaster
+    - python: 3.7
+      env: TOXENV=py37-djangomaster-aioredislatest
+    - python: 3.7
+      env: TOXENV=py37-djangomaster-aioredismaster
+    - python: 3.8
+      env: TOXENV=py38-djangomaster-aioredislatest
+    - python: 3.8
+      env: TOXENV=py38-djangomaster-aioredismaster
+  allow_failures:
+    - env: TOXENV=py36-djangomaster-aioredislatest
+    - env: TOXENV=py36-djangomaster-aioredismaster
+    - env: TOXENV=py37-djangomaster-aioredislatest
+    - env: TOXENV=py37-djangomaster-aioredismaster
+    - env: TOXENV=py38-djangomaster-aioredislatest
+    - env: TOXENV=py38-djangomaster-aioredismaster
+
+install: pip install tox
+script: tox
+
+deploy:
+  provider: pypi
+  distributions: sdist bdist_wheel
+  user: "__token__"
+  password:
+    secure: PLEASE_REPLACE_ME
+  on:
+    tags: true
+    repo: Andrew-Chen-Wang/django_async_redis
+    python: 3.8

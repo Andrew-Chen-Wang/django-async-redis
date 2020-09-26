@@ -1,0 +1,16 @@
+django>=3
+
+pip==19.2.3
+bump2version==0.5.11
+wheel==0.33.6
+watchdog==0.9.0
+tox==3.14.0
+tox-current-env==0.0.2
+black==19.10b0  # https://github.com/ambv/black
+isort==4.3.21  # https://github.com/timothycrosley/isort/
+coverage==4.5.4
+Sphinx==1.8.5
+twine==1.14.0
+
+pytest==4.6.5
+pytest-runner==5.1

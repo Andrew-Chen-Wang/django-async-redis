@@ -156,10 +156,6 @@ class RedisCache(BaseCache):
         return await self.client.expire(*args, **kwargs)
 
     @omit_exception
-    async def lock_async(self, *args, **kwargs):
-        return await self.client.lock(*args, **kwargs)
-
-    @omit_exception
     async def close_async(self, **kwargs):
         await self.client.close(**kwargs)
 

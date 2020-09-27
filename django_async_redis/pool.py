@@ -38,9 +38,7 @@ class ConnectionFactory:
         self.redis_client_func = import_string(redis_client_func_path)
         self.redis_client_func_kwargs = options.get("REDIS_CLIENT_KWARGS", {})
         # Must subclass AbcConnection
-        redis_client_cls_path = options.get(
-            "REDIS_CLIENT_CLASS", "aioredis.Redis"
-        )
+        redis_client_cls_path = options.get("REDIS_CLIENT_CLASS", "aioredis.Redis")
         self.redis_client_cls = import_string(redis_client_cls_path)
 
         self.options = options

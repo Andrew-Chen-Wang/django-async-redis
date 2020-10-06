@@ -61,9 +61,9 @@ script: tox
 deploy:
   provider: pypi
   distributions: sdist bdist_wheel
-  user: "__token__"
+  user: __token__
   password:
-    secure: PLEASE_REPLACE_ME
+    secure: E71Tbg2TNUKZMvCxw+FbEizJL/kwBd8PJ9Xg0Abnm1QBsaeOY8G0mq8HArwHeYlH/2485qRNVeXNfzY8fCQbG29cXhzUm7Bv+gCW3rqeQGKMPmRwEupQq4XB2xCzc8xlbhGk0OctT10jCu3ZZ5lyfKbEVYF06oSDjC3M5uS701+M41XjnHu2vufLbs9Dcc5W0yDRopLsgDxWsDuyaEf2guT0/NrbJ5r68TD8s+r681xJcoh4LqCuZw1vLlbvK0xoI0RxsTIKEyAwIX3CMZwuYKuk6i/bTsT5qPLvDQQqvTNYNMTEKR6yiRs9ZQEWCWpyfCM74J3YXxYYvejWk6Tc0kalzmqVkFCUubnJltdxWl6ZrJ7pRnauXddMPETTGAqvbrY+snP1pHDrXr74i0wiPXPcYuFgKXWzk7vUZ5TT8brvwKCUITP1kp59zvEFEtMvZdyC1me9d3rIzZGlItt/3XY6PeTYKyghlzHc+t0gy4UG1ZKyKvvku5XSQIT62a89ZQtPjb+9B8O1w9KvYLX17VR5O1vDOVAzSncFtZIXP3Qhm2pYM4vPGGSOXmPhutyRwalHGWWLX5Xw4pJMmUd+5xyDnaCNfAxxIb3JHXgGNfV21e7wRXhxRAy+esoxGuwQ2PExNMO5qwO/o3SX7+r6Qq33F7opSzI1aL1pbSBrXwM=
   on:
     tags: true
     repo: Andrew-Chen-Wang/django-async-redis

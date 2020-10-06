@@ -1,6 +1,7 @@
 import functools
 import logging
-from typing import Any, AsyncGenerator, Optional, OrderedDict, Union
+from collections import OrderedDict
+from typing import Any, AsyncGenerator, Optional, Union
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
@@ -133,7 +134,7 @@ class RedisCache(BaseCache):
         await self.client.clear()
 
     @omit_exception(return_value={})
-    async def get_many_async(self, *args, **kwargs) -> OrderedDict[str, Any]:
+    async def get_many_async(self, *args, **kwargs) -> OrderedDict:
         return await self.client.get_many(*args, **kwargs)
 
     @omit_exception

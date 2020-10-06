@@ -1,10 +1,13 @@
 import functools
 import logging
+from typing import Any, AsyncGenerator, Optional, OrderedDict, Union
 
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.cache.backends.base import BaseCache
 from django.utils.module_loading import import_string
 
+from .client import DefaultClient
 from .exceptions import ConnectionInterrupted
 
 
@@ -39,6 +42,7 @@ def omit_exception(method=None, return_value=None):
     return _decorator
 
 
+# noinspection PyAbstractClass
 class RedisCache(BaseCache):
     def __init__(self, server, params):
         super().__init__(params)
@@ -65,8 +69,12 @@ class RedisCache(BaseCache):
             else None
         )
 
+    def close(self, **kwargs):
+        # TODO Remove this once Django's close_caches implement cache.close_async
+        async_to_sync(self.close_async)
+
     @property
-    def client(self):
+    def client(self) -> Union[DefaultClient]:
         """
         Lazy client connection property.
         """
@@ -76,6 +84,15 @@ class RedisCache(BaseCache):
 
     @omit_exception
     async def set_async(self, *args, **kwargs):
+        """
+        :param key: the cache key.
+        :param value: the cache's value.
+        :param timeout: the timeout in seconds. Will be sent as pexpire.
+        :param version: cache version.
+        :param client: the client to use.
+        :param nx: sets the nx flag. Not set if xx is True.
+        :param xx: sets the xx flag. Takes precedence over nx if True.
+        """
         return await self.client.set(*args, **kwargs)
 
     @omit_exception
@@ -112,11 +129,11 @@ class RedisCache(BaseCache):
         return await self.client.delete_many(*args, **kwargs)
 
     @omit_exception
-    async def clear_async(self):
-        return await self.client.clear()
+    async def clear_async(self) -> None:
+        await self.client.clear()
 
     @omit_exception(return_value={})
-    async def get_many_async(self, *args, **kwargs):
+    async def get_many_async(self, *args, **kwargs) -> OrderedDict[str, Any]:
         return await self.client.get_many(*args, **kwargs)
 
     @omit_exception
@@ -140,11 +157,15 @@ class RedisCache(BaseCache):
         return await self.client.keys(*args, **kwargs)
 
     @omit_exception
-    async def iter_keys_async(self, *args, **kwargs):
-        return await self.client.iter_keys(*args, **kwargs)
+    async def iter_keys_async(self, *args, **kwargs) -> AsyncGenerator[str, Any]:
+        """
+        Returns a coroutine that the dev will
+        await since an async generator is returned.
+        """
+        return self.client.iter_keys(*args, **kwargs)
 
     @omit_exception
-    async def ttl_async(self, *args, **kwargs):
+    async def ttl_async(self, *args, **kwargs) -> Optional[int]:
         return await self.client.ttl(*args, **kwargs)
 
     @omit_exception
@@ -156,7 +177,7 @@ class RedisCache(BaseCache):
         return await self.client.expire(*args, **kwargs)
 
     @omit_exception
-    async def close_async(self, **kwargs):
+    async def close_async(self, **kwargs) -> None:
         await self.client.close(**kwargs)
 
     @omit_exception

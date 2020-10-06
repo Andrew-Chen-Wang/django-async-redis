@@ -76,8 +76,7 @@ class ConnectionFactory:
         return a new connection.
         """
         params: Dict[str, Any] = self.make_connection_params(address)
-        connection = await self.get_connection(params)
-        return connection
+        return await self.get_connection(params)
 
     async def get_connection(self, params: Dict[str, Any]) -> Redis:
         """
@@ -87,9 +86,10 @@ class ConnectionFactory:
         The default implementation uses a cached pools
         for create new connection.
         """
-        pool: ConnectionsPool = await self.get_or_create_connection_pool(params)
         # Creates new connection if needed. If pool is closed, womp womp
+        pool: ConnectionsPool = await self.get_or_create_connection_pool(params)
         # If no free connection, waits for another conn.
+        # Raises RunTime error if we run out of connections by maxsize
         return self.redis_client_cls(pool)
 
     def get_parser_cls(self):
@@ -127,7 +127,7 @@ class ConnectionFactory:
         return pool
 
 
-def get_connection_factory(path=None, options=None):
+def get_connection_factory(path=None, options=None) -> ConnectionFactory:
     if path is None:
         path = getattr(
             settings,

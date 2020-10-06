@@ -46,6 +46,8 @@ matrix:
     - python: 3.8
       env: TOXENV=py38-djangomaster-aioredismaster
   allow_failures:
+    - env: TOXENV=lint
+      if: branch=master
     - env: TOXENV=py36-djangomaster-aioredislatest
     - env: TOXENV=py36-djangomaster-aioredismaster
     - env: TOXENV=py37-djangomaster-aioredislatest
@@ -64,5 +66,5 @@ deploy:
     secure: PLEASE_REPLACE_ME
   on:
     tags: true
-    repo: Andrew-Chen-Wang/django_async_redis
+    repo: Andrew-Chen-Wang/django-async-redis
     python: 3.8

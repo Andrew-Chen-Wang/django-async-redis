@@ -2,9 +2,11 @@ import random
 import re
 import socket
 from collections import OrderedDict
+from typing import List, Optional, Tuple, Union
 
 from aioredis import Redis
-from aioredis.errors import ReplyError
+from aioredis.abc import AbcPool
+from aioredis.errors import ConnectionClosedError, ReplyError
 from django.conf import settings
 from django.core.cache.backends.base import DEFAULT_TIMEOUT, get_key_func
 from django.core.exceptions import ImproperlyConfigured
@@ -18,6 +20,8 @@ from ..util import CacheKey
 
 
 _main_exceptions = (
+    ConnectionClosedError,
+    ConnectionResetError,
     ReplyError,
     socket.timeout,
 )
@@ -30,7 +34,7 @@ def glob_escape(s):
 
 
 class DefaultClient:
-    def __init__(self, server, params, backend):
+    def __init__(self, server: Union[list, tuple, set], params: dict, backend):
         self._backend = backend
         self._server = server
         self._params = params
@@ -46,7 +50,7 @@ class DefaultClient:
         if not isinstance(self._server, (list, tuple, set)):
             self._server = self._server.split(",")
 
-        self._clients = [None] * len(self._server)
+        self._clients: List[Optional[Redis]] = [None] * len(self._server)
         self._options = params.get("OPTIONS", {})
         self._replica_read_only = self._options.get("REPLICA_READ_ONLY", True)
 
@@ -68,12 +72,22 @@ class DefaultClient:
     def __contains__(self, key):
         return self.has_key(key)
 
-    def get_next_client_index(self, write=True, tried=()):
+    async def close_connections(self) -> None:
         """
-        Return a next index for read client. This function implements a default
-        behavior for get a next read client for a replication setup.
-        Overwrite this function if you want a specific
-        behavior.
+        Clears pool connections. Mostly used for testing with pytest
+        https://aioredis.readthedocs.io/en/v1.3.0/api_reference.html#aioredis.ConnectionsPool.clear
+        """
+        client = await self.get_client(write=False)
+        assert isinstance(
+            client.connection, AbcPool
+        ), "Must subclass aioredis.abc.AbcPool"
+        await client.connection.clear()
+
+    def get_next_client_index(self, write=True, tried=()) -> int:
+        """
+        Return the next index for read client. This function implements a default
+        behavior for getting the next read client for a replication setup.
+        Overwrite this function if you want a specific behavior.
         """
         if tried and len(tried) < len(self._server):
             not_tried = [i for i in range(0, len(self._server)) if i not in tried]
@@ -84,11 +98,13 @@ class DefaultClient:
 
         return random.randint(1, len(self._server) - 1)
 
-    async def get_client(self, write=True, tried=(), show_index=False):
+    async def get_client(
+        self, write=True, tried=(), show_index=False
+    ) -> Union[Redis, Tuple[Redis, int]]:
         """
-        Method used for obtain a raw redis client.
+        Method used to obtain a raw redis client.
         This function is used by almost all cache backend
-        operations for obtain a native redis client/connection
+        operations to obtain a native redis client/connection
         instance.
         """
         index = self.get_next_client_index(write=write, tried=tried or [])
@@ -101,7 +117,7 @@ class DefaultClient:
         else:
             return self._clients[index]
 
-    async def connect(self, index=0):
+    async def connect(self, index=0) -> Redis:
         """
         Given a connection index, returns a new raw redis client/connection
         instance. Index is used for replication setups and indicates that
@@ -113,16 +129,17 @@ class DefaultClient:
         self,
         key,
         value,
-        timeout=DEFAULT_TIMEOUT,
+        timeout: Optional[int] = DEFAULT_TIMEOUT,
         version=None,
         client: Redis = None,
-        nx=False,
-        xx=False,
+        nx: bool = False,
+        xx: bool = False,
     ):
         """
         Persist a value to the cache, and set an optional expiration time.
+
         Also supports optional nx parameter. If set to True - will use redis
-        setnx instead of set.
+        setnx instead of set. Note: xx overrides nx in aioredis.
         """
         nkey = self.make_key(key, version=version)
         nvalue = self.encode(value)
@@ -138,26 +155,34 @@ class DefaultClient:
                     client, index = await self.get_client(
                         write=True, tried=tried, show_index=True
                     )
+                with (await client) as c:
+                    if timeout is not None:
+                        # Convert to milliseconds
+                        timeout = int(timeout * 1000)
 
-                if timeout is not None:
-                    # Convert to milliseconds
-                    timeout = int(timeout * 1000)
+                        if timeout <= 0:
+                            if nx:
+                                # Using negative timeouts when nx is True should
+                                # not expire (in our case delete) the value if it exists.
+                                # Obviously expire not existent value is noop.
+                                return not await self.has_key(
+                                    key, version=version, client=client
+                                )
+                            else:
+                                # redis doesn't support negative timeouts in ex flags
+                                # so it seems that it's better to just delete the key
+                                # than to set it and than expire in a pipeline
+                                return await self.delete(
+                                    key, client=client, version=version
+                                )
 
-                    if timeout <= 0:
-                        if nx:
-                            # Using negative timeouts when nx is True should
-                            # not expire (in our case delete) the value if it exists.
-                            # Obviously expire not existent value is noop.
-                            return not self.has_key(key, version=version, client=client)
-                        else:
-                            # redis doesn't support negative timeouts in ex flags
-                            # so it seems that it's better to just delete the key
-                            # than to set it and than expire in a pipeline
-                            return self.delete(key, client=client, version=version)
-
-                return bool(
-                    await client.set(nkey, nvalue, expire=nx, pexpire=timeout, exist=xx)
-                )
+                    # aioredis expects xx/nx flag to be strings. Convert bool to strings
+                    flag = None
+                    if xx:
+                        flag = client.SET_IF_EXIST
+                    elif nx:
+                        flag = client.SET_IF_NOT_EXIST
+                    return bool(await c.set(nkey, nvalue, pexpire=timeout, exist=flag))
             except _main_exceptions as e:
                 if (
                     not original_client
@@ -185,10 +210,11 @@ class DefaultClient:
         old_key = self.make_key(key, version)
         value = await self.get(old_key, version=version, client=client)
 
-        try:
-            ttl = await client.ttl(old_key)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                ttl = await c.ttl(old_key)
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
         if value is None:
             raise ValueError("Key '%s' not found" % key)
@@ -223,14 +249,14 @@ class DefaultClient:
 
         key = self.make_key(key, version=version)
 
-        try:
-            value = await client.get(key)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                value = await c.get(key)
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
         if value is None:
             return default
-
         return self.decode(value)
 
     async def persist(self, key, version=None, client: Redis = None):
@@ -239,8 +265,9 @@ class DefaultClient:
 
         key = self.make_key(key, version=version)
 
-        if await client.exists(key):
-            await client.persist(key)
+        with await client as c:
+            if await c.exists(key):
+                await c.persist(key)
 
     async def expire(self, key, timeout, version=None, client: Redis = None):
         if client is None:
@@ -248,8 +275,9 @@ class DefaultClient:
 
         key = self.make_key(key, version=version)
 
-        if await client.exists(key):
-            await client.expire(key, timeout)
+        with await client as c:
+            if await c.exists(key):
+                await c.expire(key, timeout)
 
     async def delete(self, key, version=None, prefix=None, client: Redis = None):
         """
@@ -258,12 +286,13 @@ class DefaultClient:
         if client is None:
             client = await self.get_client(write=True)
 
-        try:
-            return await client.delete(
-                self.make_key(key, version=version, prefix=prefix)
-            )
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                return await c.delete(
+                    self.make_key(key, version=version, prefix=prefix)
+                )
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     async def delete_pattern(
         self, pattern, version=None, prefix=None, client: Redis = None, itersize=None
@@ -281,32 +310,32 @@ class DefaultClient:
         if itersize:
             kwargs["count"] = itersize
 
-        try:
-            count = 0
-            for key in await client.scan(**kwargs):
-                await client.delete(key)
-                count += 1
-            return count
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                count = 0
+                async for key in c.iscan(**kwargs):
+                    await c.delete(key)
+                    count += 1
+                return count
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     async def delete_many(self, keys, version=None, client: Redis = None):
         """
         Remove multiple keys at once.
         """
+        keys = [self.make_key(k, version=version) for k in keys]
+        if not keys:
+            return
 
         if client is None:
             client = await self.get_client(write=True)
 
-        keys = [self.make_key(k, version=version) for k in keys]
-
-        if not keys:
-            return
-
-        try:
-            return await client.delete(*keys)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                return await c.delete(*keys)
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     async def clear(self, client: Redis = None):
         """
@@ -316,10 +345,11 @@ class DefaultClient:
         if client is None:
             client = await self.get_client(write=True)
 
-        try:
-            await client.flushdb()
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                await c.flushdb()
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     def decode(self, value):
         """
@@ -352,27 +382,26 @@ class DefaultClient:
         """
         Retrieve many keys.
         """
+        if not keys:
+            return {}
 
         if client is None:
             client = await self.get_client(write=False)
 
-        if not keys:
-            return {}
-
         recovered_data = OrderedDict()
-
         map_keys = OrderedDict((self.make_key(k, version=version), k) for k in keys)
 
-        try:
-            results = await client.mget(*map_keys)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                results = await c.mget(*map_keys)
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
-        for key, value in zip(map_keys, results):
-            if value is None:
-                continue
-            recovered_data[map_keys[key]] = self.decode(value)
-        return recovered_data
+            for key, value in zip(map_keys, results):
+                if value is None:
+                    continue
+                recovered_data[map_keys[key]] = self.decode(value)
+            return recovered_data
 
     async def set_many(
         self, data, timeout=DEFAULT_TIMEOUT, version=None, client: Redis = None
@@ -383,16 +412,29 @@ class DefaultClient:
         If timeout is given, that timeout will be used for the key; otherwise
         the default cache timeout will be used.
         """
+        if timeout is DEFAULT_TIMEOUT:
+            timeout = self._backend.default_timeout
+
         if client is None:
             client = await self.get_client(write=True)
 
-        try:
-            pipeline = await client.pipeline()
-            for key, value in data.items():
-                await self.set(key, value, timeout, version=version, client=pipeline)
-            pipeline.execute()
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            try:
+                # Use pipeline since mset doesn't have timeout
+                pipeline = c.pipeline()
+                for key, value in data.items():
+                    nkey = self.make_key(key, version=version)
+                    nvalue = self.encode(value)
+                    if timeout is not None:
+                        timeout = int(timeout * 1000)
+                        if timeout <= 0:
+                            await self.delete(key, client=client, version=version)
+                            continue
+                    pipeline.set(nkey, nvalue, pexpire=timeout)
+
+                await pipeline.execute()
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     async def _incr(
         self, key, delta=1, version=None, client: Redis = None, ignore_key_check=False
@@ -402,44 +444,46 @@ class DefaultClient:
 
         key = self.make_key(key, version=version)
 
-        try:
+        with await client as c:
             try:
-                # if key expired after exists check, then we get
-                # key with wrong value and ttl -1.
-                # use lua script for atomicity
-                if not ignore_key_check:
-                    lua = """
-                    local exists = redis.call('EXISTS', KEYS[1])
-                    if (exists == 1) then
+                try:
+                    # if key expired after exists check, then we get
+                    # key with wrong value and ttl -1.
+                    # use lua script for atomicity
+                    if not ignore_key_check:
+                        lua = """
+                        local exists = redis.call('EXISTS', KEYS[1])
+                        if (exists == 1) then
+                            return redis.call('INCRBY', KEYS[1], ARGV[1])
+                        else return false end
+                        """
+                    else:
+                        lua = """
                         return redis.call('INCRBY', KEYS[1], ARGV[1])
-                    else return false end
-                    """
-                else:
-                    lua = """
-                    return redis.call('INCRBY', KEYS[1], ARGV[1])
-                    """
-                value = await client.eval(lua, [key], [delta])
-                if value is None:
-                    raise ValueError("Key '%s' not found" % key)
-            except ReplyError:
-                # if cached value or total value is greater than 64 bit signed
-                # integer.
-                # elif int is encoded. so redis sees the data as string.
-                # In this situation redis will throw ResponseError
+                        """
+                    value = await c.eval(lua, [key], [delta])
+                    if value is None:
+                        raise ValueError("Key '%s' not found" % key)
+                except ReplyError:
+                    # if cached value or total value is greater than 64 bit signed
+                    # integer.
+                    # elif int is encoded. so redis sees the data as string.
+                    # In this situation redis will throw ResponseError
 
-                # try to keep TTL of key
+                    # try to keep TTL of key
 
-                timeout = await client.ttl(key)
-                # returns -2 if the key does not exist
-                # means, that key have expired
-                if timeout == -2:
-                    raise ValueError("Key '%s' not found" % key)
-                value = await self.get(key, version=version, client=client) + delta
-                await self.set(
-                    key, value, version=version, timeout=timeout, client=client
-                )
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+                    timeout = await c.ttl(key)
+                    # returns -2 if the key does not exist
+                    # means, that key have expired
+                    if timeout == -2:
+                        await client.quit()
+                        raise ValueError("Key '%s' not found" % key)
+                    value = await self.get(key, version=version, client=client) + delta
+                    await self.set(
+                        key, value, version=version, timeout=timeout, client=client
+                    )
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
         return value
 
@@ -475,10 +519,10 @@ class DefaultClient:
             client = await self.get_client(write=False)
 
         key = self.make_key(key, version=version)
-        if not await client.exists(key):
-            return 0
-
-        t = await client.ttl(key)
+        with await client as c:
+            if not await c.exists(key):
+                return 0
+            t = await c.ttl(key)
 
         if t >= 0:
             return t
@@ -497,12 +541,12 @@ class DefaultClient:
 
         if client is None:
             client = await self.get_client(write=False)
-
-        key = self.make_key(key, version=version)
-        try:
-            return await client.exists(key) == 1
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            key = self.make_key(key, version=version)
+            try:
+                return await c.exists(key) == 1
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     async def iter_keys(
         self, search, itersize=None, client: Redis = None, version=None
@@ -516,8 +560,10 @@ class DefaultClient:
             client = await self.get_client(write=False)
 
         pattern = self.make_pattern(search, version=version)
-        for item in await client.scan(match=pattern, count=itersize):
-            yield self.reverse_key(item.decode())
+
+        with await client as c:
+            async for item in c.iscan(match=pattern, count=itersize):
+                yield self.reverse_key(item.decode())
 
     async def keys(self, search, version=None, client: Redis = None):
         """
@@ -530,11 +576,12 @@ class DefaultClient:
         if client is None:
             client = await self.get_client(write=False)
 
-        pattern = self.make_pattern(search, version=version)
-        try:
-            return [self.reverse_key(k.decode()) for k in await client.keys(pattern)]
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client) from e
+        with await client as c:
+            pattern = self.make_pattern(search, version=version)
+            try:
+                return [self.reverse_key(k.decode()) for k in await c.keys(pattern)]
+            except _main_exceptions as e:
+                raise ConnectionInterrupted(connection=client) from e
 
     def make_key(self, key, version=None, prefix=None) -> CacheKey:
         if isinstance(key, CacheKey):
@@ -548,7 +595,7 @@ class DefaultClient:
 
         return CacheKey(self._backend.key_func(key, prefix, version))
 
-    def make_pattern(self, pattern, version=None, prefix=None):
+    def make_pattern(self, pattern, version=None, prefix=None) -> CacheKey:
         if isinstance(pattern, CacheKey):
             return pattern
 
@@ -563,11 +610,10 @@ class DefaultClient:
         return CacheKey(self._backend.key_func(pattern, prefix, version))
 
     async def close(self, **kwargs):
-        # TODO Need to properly close
         if getattr(settings, "DJANGO_ASYNC_REDIS_CLOSE_CONNECTION", False):
-            for i in range(len(self._clients)):
-                for c in self._clients[i].connection_pool._available_connections:
-                    c.disconnect()
+            for i, c in enumerate(self._clients):
+                c.close()
+                await c.wait_closed()
                 self._clients[i] = None
 
     async def touch(
@@ -583,10 +629,11 @@ class DefaultClient:
         if client is None:
             client = await self.get_client(write=True)
 
-        key = self.make_key(key, version=version)
-        if timeout is None:
-            return bool(await client.persist(key))
-        else:
-            # Convert to milliseconds
-            timeout = int(timeout * 1000)
-            return bool(await client.pexpire(key, timeout))
+        with await client as c:
+            key = self.make_key(key, version=version)
+            if timeout is None:
+                return bool(await c.persist(key))
+            else:
+                # Convert to milliseconds
+                timeout = int(timeout * 1000)
+                return bool(await c.pexpire(key, timeout))

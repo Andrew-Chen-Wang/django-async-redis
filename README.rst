@@ -4,10 +4,10 @@ Django Async Redis
 
 
 .. image:: https://img.shields.io/pypi/v/django-async-redis.svg
-        :target: https://pypi.python.org/pypi/django_async_redis
+        :target: https://pypi.python.org/pypi/django-async-redis
 
 .. image:: https://img.shields.io/travis/Andrew-Chen-Wang/django-async-redis.svg
-        :target: https://travis-ci.com/Andrew-Chen-Wang/django-async-redis
+        :target: https://travis-ci.com/Andrew-Chen-Wang/django-async-redis?branch=master
 
 .. image:: https://readthedocs.org/projects/django-async-redis/badge/?version=latest
         :target: https://django-async-redis.readthedocs.io/en/latest/?badge=latest
@@ -64,7 +64,7 @@ something like:
         }
     }
 
-django-async-redis uses the redis-py native URL notation for connection strings, it
+django-async-redis uses the aioredis native URL notation for connection strings, it
 allows better interoperability and has a connection string in more "standard"
 way. Some examples:
 
@@ -104,13 +104,24 @@ convenience option in ``OPTIONS`` dict:
 Take care, that this option does not overwrites the password in the uri, so if
 you have set the password in the uri, this settings will be ignored.
 
-Credit
-------
+Notes
+-----
 
-- Hey, I'm Andrew. I'm busy in college, but I wanted to help contribute to Django's async ecosystem.
+Since the majority of this code was ported from django-redis, there was one
+case that had needed a monkeypatch. In ``django_async_redis.util``, we implement
+``CacheKey`` which subclasses ``str`` which helps us know if a cache key was
+already created. Since aioredis, checks if the cache key is of type str
+(and others), I had to monkeypatch that check so that a CacheKey instance could
+also be accepted.
+
+Credit
+~~~~~~
+
+- Hey, I'm Andrew. I'm busy in college, but I wanted to help contribute
+  to Django's async ecosystem.
 - Lots of code is taken from django-redis, including the tests.
-  I just needed to port everything to asyncio and aioredis,
-  but aioredis is not as full of capabilities as redis-py.
+  I just needed to port everything to asyncio and aioredis.
 - I used cookiecutter-pypackage to generate this project.
-- Thank you to Python Discord server's async topical chat for helping
-  me understand when to use coroutines over sync functions.
+- Thank you to Python Discord server's async topical chat
+  for helping me understand when to use coroutines over sync functions
+  and @Bast and @hmmmm in general because they're OG.

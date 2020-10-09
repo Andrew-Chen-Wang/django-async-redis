@@ -6,7 +6,7 @@ Django Async Redis
 .. image:: https://img.shields.io/pypi/v/django-async-redis.svg
         :target: https://pypi.python.org/pypi/django-async-redis
 
-.. image:: https://img.shields.io/travis/Andrew-Chen-Wang/django-async-redis.svg?branch=master
+.. image:: https://travis-ci.com/Andrew-Chen-Wang/django-async-redis.svg?branch=master
         :target: https://travis-ci.com/Andrew-Chen-Wang/django-async-redis?branch=master
 
 .. image:: https://readthedocs.org/projects/django-async-redis/badge/?version=latest
@@ -291,7 +291,7 @@ Credit
 
 - Hey, I'm Andrew. I'm busy in college, but I wanted to help contribute
   to Django's async ecosystem.
-- Lots of code and docs is taken from django-async-redis, including the tests.
+- Lots of code and docs is taken from django-redis, including the tests.
   I just needed to port everything to asyncio and aioredis.
 - I used cookiecutter-pypackage to generate this project.
 - Thank you to Python Discord server's async topical chat

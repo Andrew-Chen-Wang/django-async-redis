@@ -72,7 +72,7 @@ class RedisCache(BaseCache):
 
     def close(self, **kwargs):
         # TODO Remove this once Django's close_caches implement cache.close_async
-        async_to_sync(self.close_async)
+        async_to_sync(self.close_async)()
 
     @property
     def client(self) -> Union[DefaultClient]:

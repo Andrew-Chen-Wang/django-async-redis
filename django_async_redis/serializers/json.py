@@ -9,8 +9,8 @@ from .base import BaseSerializer
 class JSONSerializer(BaseSerializer):
     encoder_class = DjangoJSONEncoder
 
-    def dumps(self, value) -> bytes:
+    def dumps(self, value: Any) -> bytes:
         return json.dumps(value, cls=self.encoder_class).encode()
 
-    def loads(self, value) -> Any:
+    def loads(self, value: bytes) -> Any:
         return json.loads(value.decode())

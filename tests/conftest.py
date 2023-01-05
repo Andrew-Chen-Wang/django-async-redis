@@ -8,9 +8,8 @@ from django_async_redis.cache import RedisCache
 
 @pytest.fixture(autouse=True)
 async def cache_setup() -> RedisCache:
-    await cache.clear_async()
+    await cache.aclear()
     yield cache
-    await cache.client.close_connections()
 
 
 if version_info >= (3, 8):

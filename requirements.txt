@@ -1,0 +1,25 @@
+django>=3.2
+redis>=4.2.0
+hiredis==2.1.0
+
+lz4==4.3.2
+msgpack==1.0.4
+pyzstd==0.15.3
+
+pip==22.3.1
+bump2version==1.0.1
+wheel==0.38.4
+watchdog==2.2.1
+tox==4.2.3
+tox-current-env==0.0.10
+black==22.12.0  # https://github.com/ambv/black
+isort==5.11.4  # https://github.com/timothycrosley/isort/
+coverage==7.0.3
+Sphinx==6.0.0
+twine==4.0.2
+pre-commit==2.21.0
+
+pytest==7.2.0
+pytest-django==4.5.2
+pytest-asyncio==0.20.3
+pytest-sugar==0.9.6

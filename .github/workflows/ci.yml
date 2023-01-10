@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11']
+        django-version: ['3.2', '4.1']
+        exclude:
+          - python-version: '3.10'
+            django-version: '3.2'
+          - python-version: '3.11'
+            django-version: '3.2'
+          - python-version: '3.7'
+            django-version: '4.1'
+    services:
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Get pip cache dir
+      id: pip-cache
+      run: |
+        echo "::set-output name=dir::$(pip cache dir)"
+    - name: Cache
+      uses: actions/cache@v2
+      with:
+        path: ${{ steps.pip-cache.outputs.dir }}
+        key:
+          ${{ matrix.python-version }}-v1-${{ hashFiles('**/setup.py') }}
+        restore-keys: |
+          ${{ matrix.python-version }}-v1-
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y zlib1g-dev
+        python -m pip install --upgrade pip wheel
+        python -m pip install tox tox-gh-actions coveralls
+    - name: Tox Test
+      run: tox
+      env:
+        PYTHON_VER: ${{ matrix.python-version }}
+        DJANGO: ${{ matrix.django-version }}

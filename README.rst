@@ -24,14 +24,14 @@ django-async-redis is a full featured Redis cache and session backend for Django
 Requirements
 ------------
 
-- `Python`_ 3.6+
-- `Django`_ 3.0+
-- `aioredis`_ 1.0+
+- `Python`_ 3.7+
+- `Django`_ 3.2+
+- `redis-py`_ 4.2+
 - `Redis server`_ 2.8+
 
 .. _Python: https://www.python.org/downloads/
 .. _Django: https://www.djangoproject.com/download/
-.. _aioredis: https://pypi.org/project/aioredis/
+.. _redis-py: https://pypi.org/project/redis/
 .. _Redis server: https://redis.io/download
 
 User guide
@@ -161,13 +161,13 @@ And it behaves in the same way as the Django BaseCache backend specifies:
 
 .. code-block:: python
 
-    await cache.set_async("key", "value", timeout=None)
+    await cache.aset("key", "value", timeout=None)
 
 Get ttl (time-to-live) from key
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With Redis, you can access to ttl of any stored key, for it,
-django-async-redis exposes ``ttl_async`` function.
+django-async-redis exposes ``attl`` function.
 
 It returns:
 
@@ -178,33 +178,33 @@ It returns:
 .. code-block:: pycon
 
     >>> from django.core.cache import cache
-    >>> await cache.set_async("foo", "value", timeout=25)
-    >>> await cache.ttl_async("foo")
+    >>> await cache.aset("foo", "value", timeout=25)
+    >>> await cache.attl("foo")
     25
-    >>> await cache.ttl_async("not-existent")
+    >>> await cache.attl("not-existent")
     0
 
 Expire & Persist
 ~~~~~~~~~~~~~~~~
 
 Additionally to the simple ttl query, you can send persist a concrete key or
-specify a new expiration timeout using the ``persist_async`` and ``expire_async``
+specify a new expiration timeout using the ``apersist`` and ``aexpire``
 methods:
 
 .. code-block:: pycon
 
-    >>> await cache.set_async("foo", "bar", timeout=22)
-    >>> await cache.ttl_async("foo")
+    >>> await cache.aset("foo", "bar", timeout=22)
+    >>> await cache.attl("foo")
     22
-    >>> await cache.persist_async("foo")
-    >>> await cache.ttl_async("foo")
+    >>> await cache.apersist("foo")
+    >>> await cache.attl("foo")
     None
 
 .. code-block:: pycon
 
-    >>> await cache.set_async("foo", "bar", timeout=22)
-    >>> await cache.expire_async("foo", timeout=5)
-    >>> await cache.ttl_async("foo")
+    >>> await cache.aset("foo", "bar", timeout=22)
+    >>> await cache.aexpire("foo", timeout=5)
+    >>> await cache.attl("foo")
     5
 
 Scan & Delete keys in bulk
@@ -216,30 +216,30 @@ deleting keys using glob patterns.
 .. code-block:: pycon
 
     >>> from django.core.cache import cache
-    >>> await cache.keys_async("foo_*")
+    >>> await cache.akeys("foo_*")
     ["foo_1", "foo_2"]
 
 A simple search like this will return all matched values. In databases with a
 large number of keys this isn't suitable method. Instead, you can use the
-``iter_keys_async`` function that works like the ``keys_async`` function but uses Redis
-server side cursors. Calling ``iter_keys_async`` will return a generator that you can
+``aiter_keys`` function that works like the ``akeys`` function but uses Redis
+server side cursors. Calling ``aiter_keys`` will return a generator that you can
 then iterate over efficiently.
 
 .. code-block:: pycon
 
     >>> from django.core.cache import cache
-    >>> await cache.iter_keys_async("foo_*")
+    >>> await cache.aiter_keys("foo_*")
     <async_generator object algo at 0x7ffa9c2713a8>
-    >>> (await cache.iter_keys_async("foo_*")).__anext__()
+    >>> (await cache.aiter_keys("foo_*")).__anext__()
     "foo_1"
 
-For deleting keys, you should use ``delete_pattern_async`` which has the same glob
-pattern syntax as the ``keys_async`` function and returns the number of deleted keys.
+For deleting keys, you should use ``adelete_pattern`` which has the same glob
+pattern syntax as the ``akeys`` function and returns the number of deleted keys.
 
 .. code-block:: pycon
 
     >>> from django.core.cache import cache
-    >>> await cache.delete_pattern_async("foo_*")
+    >>> await cache.adelete_pattern("foo_*")
 
 Redis native commands
 ~~~~~~~~~~~~~~~~~~~~~
@@ -247,20 +247,20 @@ Redis native commands
 django-async-redis has limited support for some Redis atomic operations, such as the
 commands ``SETNX`` and ``INCR``.
 
-You can use the ``SETNX`` command through the backend ``set_async()`` method with
+You can use the ``SETNX`` command through the backend ``aset()`` method with
 the ``nx`` parameter:
 
 .. code-block:: pycon
 
     >>> from django.core.cache import cache
-    >>> await cache.set_async("key", "value1", nx=True)
+    >>> await cache.aset("key", "value1", nx=True)
     True
-    >>> await cache.set_async("key", "value2", nx=True)
+    >>> await cache.aset("key", "value2", nx=True)
     False
-    >>> await cache.get_async("key")
+    >>> await cache.aget("key")
     "value1"
 
-Also, the ``incr_async`` and ``decr_async`` methods use Redis atomic
+Also, the ``aincr`` and ``adecr`` methods use Redis atomic
 operations when the value that a key contains is suitable for it.
 
 Note that setting ``xx`` to True overrides the ``nx`` flag according

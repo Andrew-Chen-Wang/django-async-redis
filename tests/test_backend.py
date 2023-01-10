@@ -5,7 +5,7 @@ from typing import Dict
 
 import pytest
 from django.conf import settings
-from django.core.cache import cache, caches
+from django.core.cache import caches
 from django.test import override_settings
 
 from django_async_redis import pool
@@ -16,7 +16,6 @@ from django_async_redis.serializers.json import JSONSerializer
 pytestmark = pytest.mark.asyncio
 
 # Type hints
-cache: RedisCache
 caches: Dict[str, RedisCache]
 
 
@@ -33,19 +32,19 @@ async def test_connection_strings(conn_string):
 class TestEscapePrefix:
     OTHER_CACHE = "with_prefix"
 
-    async def test_delete_pattern(self):
+    async def test_delete_pattern(self, cache: RedisCache):
         assert await cache.aset("a", "1") is True
         assert await caches[self.OTHER_CACHE].aset("b", "2") is True
         await cache.adelete_pattern("*")
         assert await cache.ahas_key("a") is False
         assert await caches[self.OTHER_CACHE].aget("b") == "2"
 
-    async def test_iter_keys(self):
+    async def test_iter_keys(self, cache: RedisCache):
         assert await cache.aset("a", "1") is True
         await caches[self.OTHER_CACHE].aset("b", "2")
         assert [x async for x in await cache.aiter_keys("*")] == ["a"]
 
-    async def test_keys(self):
+    async def test_keys(self, cache: RedisCache):
         await cache.aset("a", "1")
         await caches[self.OTHER_CACHE].aset("b", "2")
         keys = await cache.akeys("*")
@@ -62,7 +61,7 @@ def reverse_key(key):
 
 
 class TestCustomKeyFunction:
-    async def test_custom_key_function(self):
+    async def test_custom_key_function(self, cache: RedisCache):
         caches_settings = copy.deepcopy(settings.CACHES)
         caches_settings["default"]["KEY_FUNCTION"] = "tests.test_backend.make_key"
         caches_settings["default"][
@@ -81,12 +80,13 @@ class TestCustomKeyFunction:
         assert set(keys) == {"foo-bb", "foo-bc"}
         # ensure our custom function was actually called
         assert {
-            k.decode() for k in await cache.client.get_client(write=False).keys("*")
+            k.decode()
+            for k in await (await cache.client.get_client(write=False)).keys("*")
         } == {"#1#foo-bc", "#1#foo-bb"}
 
 
 class TestBackend:
-    async def test_setnx(self):
+    async def test_setnx(self, cache: RedisCache):
         # we should ensure there is no test_key_nx in redis
         await cache.adelete("test_key_nx")
         res = await cache.aget("test_key_nx")
@@ -104,7 +104,7 @@ class TestBackend:
         res = await cache.aget("test_key_nx")
         assert res is None
 
-    async def test_setnx_timeout(self):
+    async def test_setnx_timeout(self, cache: RedisCache):
         # test that timeout still works for nx=True
         res = await cache.aset("test_key_nx", 1, timeout=2, nx=True)
         assert res is True
@@ -124,19 +124,19 @@ class TestBackend:
         res = await cache.aget("test_key_nx")
         assert res is None
 
-    async def test_unicode_keys(self):
+    async def test_unicode_keys(self, cache: RedisCache):
         await cache.aset("ключ", "value")
         res = await cache.aget("ключ")
         assert res == "value"
 
-    async def test_save_and_integer(self):
+    async def test_save_and_integer(self, cache: RedisCache):
         await cache.aset("test_key", 2)
         res = await cache.aget("test_key", "Foo")
 
         assert isinstance(res, int)
         assert res == 2
 
-    async def test_save_string(self):
+    async def test_save_string(self, cache: RedisCache):
         await cache.aset("test_key", "hello" * 1000)
         res = await cache.aget("test_key")
 
@@ -149,14 +149,14 @@ class TestBackend:
         assert isinstance(res, str)
         assert res == "2"
 
-    async def test_save_unicode(self):
+    async def test_save_unicode(self, cache: RedisCache):
         await cache.aset("test_key", "heló")
         res = await cache.aget("test_key")
 
         assert isinstance(res, str)
         assert res == "heló"
 
-    async def test_save_dict(self):
+    async def test_save_dict(self, cache: RedisCache):
         if isinstance(cache.client._serializer, (JSONSerializer,)):
             # JSONSerializer and MSGPackSerializer use the isoformat for
             # datetimes.
@@ -174,7 +174,7 @@ class TestBackend:
         assert res["name"] == "Foo"
         assert res["date"] == now_dt
 
-    async def test_save_float(self):
+    async def test_save_float(self, cache: RedisCache):
         float_val = 1.345620002
 
         await cache.aset("test_key", float_val)
@@ -183,19 +183,19 @@ class TestBackend:
         assert isinstance(res, float)
         assert res == float_val
 
-    async def test_timeout(self):
+    async def test_timeout(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=3)
         await asyncio.sleep(4)
 
         res = await cache.aget("test_key")
         assert res is None
 
-    async def test_timeout_0(self):
+    async def test_timeout_0(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=0)
         res = await cache.aget("test_key")
         assert res is None
 
-    async def test_timeout_parameter_as_positional_argument(self):
+    async def test_timeout_parameter_as_positional_argument(self, cache: RedisCache):
         await cache.aset("test_key", 222, -1)
         res = await cache.aget("test_key")
         assert res is None
@@ -213,7 +213,7 @@ class TestBackend:
         res = await cache.aget("test_key")
         assert res == 222
 
-    async def test_timeout_negative(self):
+    async def test_timeout_negative(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=-1)
         res = await cache.aget("test_key")
         assert res is None
@@ -229,12 +229,12 @@ class TestBackend:
         res = await cache.aget("test_key")
         assert res == 222
 
-    async def test_timeout_tiny(self):
+    async def test_timeout_tiny(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=0.00001)
         res = await cache.aget("test_key")
         assert res in (None, 222)
 
-    async def test_set_add(self):
+    async def test_set_add(self, cache: RedisCache):
         await cache.aset("add_key", "Initial value")
         res = await cache.aadd("add_key", "New value")
         assert res is False
@@ -245,7 +245,7 @@ class TestBackend:
         res = await cache.aadd("other_key", "New value")
         assert res is True
 
-    async def test_get_many(self):
+    async def test_get_many(self, cache: RedisCache):
         await cache.aset("a", 1)
         await cache.aset("b", 2)
         await cache.aset("c", 3)
@@ -253,7 +253,7 @@ class TestBackend:
         res = await cache.aget_many(["a", "b", "c"])
         assert res == {"a": 1, "b": 2, "c": 3}
 
-    async def test_get_many_unicode(self):
+    async def test_get_many_unicode(self, cache: RedisCache):
         await cache.aset("a", "1")
         await cache.aset("b", "2")
         await cache.aset("c", "3")
@@ -261,14 +261,14 @@ class TestBackend:
         res = await cache.aget_many(["a", "b", "c"])
         assert res == {"a": "1", "b": "2", "c": "3"}
 
-    async def test_set_many(self):
+    async def test_set_many(self, cache: RedisCache):
         await cache.aset_many({"a": 1, "b": 2, "c": 3})
         res = await cache.aget_many(["a", "b", "c"])
         assert res == {"a": 1, "b": 2, "c": 3}
 
     @pytest.mark.xfail(reason="Can't figure out how to test with mock")
-    async def test_set_call_empty_pipeline(self, mocker):
-        pipeline = cache.client.get_client(write=True).pipeline()
+    async def test_set_call_empty_pipeline(self, cache: RedisCache, mocker):
+        pipeline = (await cache.client.get_client(write=True)).pipeline()
         key = "key"
         value = "value"
 
@@ -284,7 +284,7 @@ class TestBackend:
             xx=False,
         )
 
-    async def test_delete(self):
+    async def test_delete(self, cache: RedisCache):
         await cache.aset_many({"a": 1, "b": 2, "c": 3})
         res = await cache.adelete("a")
         assert bool(res) is True
@@ -295,7 +295,7 @@ class TestBackend:
         res = await cache.adelete("a")
         assert bool(res) is False
 
-    async def test_delete_many(self):
+    async def test_delete_many(self, cache: RedisCache):
         await cache.aset_many({"a": 1, "b": 2, "c": 3})
         res = await cache.adelete_many(["a", "b"])
         assert bool(res) is True
@@ -306,7 +306,7 @@ class TestBackend:
         res = await cache.adelete_many(["a", "b"])
         assert bool(res) is False
 
-    async def test_delete_many_generator(self):
+    async def test_delete_many_generator(self, cache: RedisCache):
         await cache.aset_many({"a": 1, "b": 2, "c": 3})
         res = await cache.adelete_many(key for key in ["a", "b"])
         assert bool(res) is True
@@ -317,11 +317,11 @@ class TestBackend:
         res = await cache.adelete_many(["a", "b"])
         assert bool(res) is False
 
-    async def test_delete_many_empty_generator(self):
+    async def test_delete_many_empty_generator(self, cache: RedisCache):
         res = await cache.adelete_many(key for key in [])
         assert bool(res) is False
 
-    async def test_incr(self):
+    async def test_incr(self, cache: RedisCache):
         await cache.aset("num", 1)
 
         await cache.aincr("num")
@@ -349,12 +349,12 @@ class TestBackend:
         res = await cache.aget("num")
         assert res == 5
 
-    async def test_incr_error(self):
+    async def test_incr_error(self, cache: RedisCache):
         with pytest.raises(ValueError):
             # key does not exist
             await cache.aincr("numnum")
 
-    async def test_incr_ignore_check(self):
+    async def test_incr_ignore_check(self, cache: RedisCache):
         # key exists check will be skipped and the value will be incremented by
         # '1' which is the default delta
         await cache.aincr("num", ignore_key_check=True)
@@ -386,7 +386,7 @@ class TestBackend:
         res = await cache.aget("num")
         assert res == 5
 
-    async def test_get_set_bool(self):
+    async def test_get_set_bool(self, cache: RedisCache):
         await cache.aset("bool", True)
         res = await cache.aget("bool")
 
@@ -399,7 +399,7 @@ class TestBackend:
         assert isinstance(res, bool)
         assert res is False
 
-    async def test_decr(self):
+    async def test_decr(self, cache: RedisCache):
         await cache.aset("num", 20)
 
         await cache.adecr("num")
@@ -431,7 +431,7 @@ class TestBackend:
         res = await cache.aget("num")
         assert res == 9223372036854775805
 
-    async def test_version(self):
+    async def test_version(self, cache: RedisCache):
         await cache.aset("keytest", 2, version=2)
         res = await cache.aget("keytest")
         assert res is None
@@ -439,7 +439,7 @@ class TestBackend:
         res = await cache.aget("keytest", version=2)
         assert res == 2
 
-    async def test_incr_version(self):
+    async def test_incr_version(self, cache: RedisCache):
         await cache.aset("keytest", 2)
         await cache.aincr_version("keytest")
 
@@ -449,7 +449,7 @@ class TestBackend:
         res = await cache.aget("keytest", version=2)
         assert res == 2
 
-    async def test_delete_pattern(self):
+    async def test_delete_pattern(self, cache: RedisCache):
         for key in ["foo-aa", "foo-ab", "foo-bb", "foo-bc"]:
             await cache.aset(key, "foo")
 
@@ -463,7 +463,7 @@ class TestBackend:
         assert bool(res) is False
 
     @pytest.mark.xfail(reason="Can't figure out how to test with mock")
-    async def test_delete_pattern_with_custom_count(self, mocker):
+    async def test_delete_pattern_with_custom_count(self, cache: RedisCache, mocker):
         client_mock = mocker.patch("django_async_redis.cache.RedisCache.client")
         for key in ["foo-aa", "foo-ab", "foo-bb", "foo-bc"]:
             await cache.aset(key, "foo")
@@ -475,7 +475,9 @@ class TestBackend:
         )
 
     @pytest.mark.xfail(reason="Can't figure out how to test with mock")
-    async def test_delete_pattern_with_settings_default_scan_count(self, mocker):
+    async def test_delete_pattern_with_settings_default_scan_count(
+        self, cache: RedisCache, mocker
+    ):
         client_mock = mocker.patch("django_async_redis.cache.RedisCache.client")
         for key in ["foo-aa", "foo-ab", "foo-bb", "foo-bc"]:
             await cache.aset(key, "foo")
@@ -483,16 +485,16 @@ class TestBackend:
 
         await cache.adelete_pattern("*foo-a*")
 
-        (await client_mock).adelete_pattern.assert_called_once_with(
+        (await client_mock).adelete_pattern.assert_awaited_once_with(
             "*foo-a*", itersize=expected_count
         )
 
-    async def test_close(self):
+    async def test_close(self, cache: RedisCache):
         _cache = caches["default"]
         await _cache.aset("f", "1")
         await _cache.aclose()
 
-    async def test_ttl(self):
+    async def test_ttl(self, cache: RedisCache):
         _cache = caches["default"]
 
         # Test ttl
@@ -514,20 +516,20 @@ class TestBackend:
         ttl = await _cache.attl("not-existent-key")
         assert ttl == 0
 
-    async def test_persist(self):
+    async def test_persist(self, cache: RedisCache):
         await cache.aset("foo", "bar", timeout=20)
         await cache.apersist("foo")
 
         ttl = await cache.attl("foo")
         assert ttl is None
 
-    async def test_expire(self):
+    async def test_expire(self, cache: RedisCache):
         await cache.aset("foo", "bar", timeout=None)
         await cache.aexpire("foo", 20)
         ttl = await cache.attl("foo")
         assert pytest.approx(ttl) == 20
 
-    async def test_iter_keys(self):
+    async def test_iter_keys(self, cache: RedisCache):
         _cache = caches["default"]
 
         await _cache.aset("foo1", 1)
@@ -546,7 +548,7 @@ class TestBackend:
         result = await _cache.aiter_keys("foo*")
         assert result.__anext__() is not None
 
-    async def test_primary_replica_switching(self):
+    async def test_primary_replica_switching(self, cache: RedisCache):
         _cache = caches["sample"]
         client = cache.client
         client._server = ["foo", "bar"]
@@ -555,14 +557,14 @@ class TestBackend:
         assert await client.get_client(write=True) == "Foo"
         assert await client.get_client(write=False) == "Bar"
 
-    async def test_touch_zero_timeout(self):
+    async def test_touch_zero_timeout(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=10)
 
         assert await cache.atouch("test_key", 0) is True
         res = await cache.aget("test_key")
         assert res is None
 
-    async def test_touch_positive_timeout(self):
+    async def test_touch_positive_timeout(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=10)
 
         assert await cache.atouch("test_key", 2) is True
@@ -570,17 +572,17 @@ class TestBackend:
         await asyncio.sleep(3)
         assert await cache.aget("test_key") is None
 
-    async def test_touch_negative_timeout(self):
+    async def test_touch_negative_timeout(self, cache: RedisCache):
         await cache.aset("test_key", 222, timeout=10)
 
         assert await cache.atouch("test_key", -1) is True
         res = await cache.aget("test_key")
         assert res is None
 
-    async def test_touch_missed_key(self):
+    async def test_touch_missed_key(self, cache: RedisCache):
         assert await cache.atouch("test_key_does_not_exist", 1) is False
 
-    async def test_touch_forever(self):
+    async def test_touch_forever(self, cache: RedisCache):
         await cache.aset("test_key", "foo", timeout=1)
         result = await cache.atouch("test_key", None)
         assert result is True
@@ -588,11 +590,11 @@ class TestBackend:
         await asyncio.sleep(2)
         assert await cache.aget("test_key") == "foo"
 
-    async def test_touch_forever_nonexistent(self):
+    async def test_touch_forever_nonexistent(self, cache: RedisCache):
         result = await cache.atouch("test_key_does_not_exist", None)
         assert result is False
 
-    async def test_touch_default_timeout(self):
+    async def test_touch_default_timeout(self, cache: RedisCache):
         await cache.aset("test_key", "foo", timeout=1)
         result = await cache.atouch("test_key")
         assert result is True

@@ -64,7 +64,7 @@ something like:
         }
     }
 
-django-async-redis uses the aioredis native URL notation for connection strings, it
+django-async-redis uses the redis-py native URL notation for connection strings, it
 allows better interoperability and has a connection string in more "standard"
 way. Some examples:
 
@@ -264,27 +264,20 @@ Also, the ``aincr`` and ``adecr`` methods use Redis atomic
 operations when the value that a key contains is suitable for it.
 
 Note that setting ``xx`` to True overrides the ``nx`` flag according
-to aioredis.
+to redis-py.
 
 Connection pools
 ~~~~~~~~~~~~~~~~
 
-Behind the scenes, django-async-redis uses the underlying aioredis connection pool
+Behind the scenes, django-async-redis uses the underlying redis-py ConnectionPool
 implementation and exposes a simple way to configure it. Alternatively, you
 can directly customize a connection/connection pool creation for a backend.
 
-The default aioredis behavior is to not close connections, recycling them when
+The default redis-py behavior is to not close connections, recycling them when
 possible.
 
 Notes
 -----
-
-Since the majority of this code was ported from django-redis, there was one
-case that had needed a monkeypatch. In ``django_async_redis.util``, we implement
-``CacheKey`` which subclasses ``str`` which helps us know if a cache key was
-already created. Since aioredis, checks if the cache key is of type str
-(and others), I had to monkeypatch that check so that a CacheKey instance could
-also be accepted.
 
 Credit
 ~~~~~~
